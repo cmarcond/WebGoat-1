@@ -1,0 +1,220 @@
+pipeline {
+  agent {label 'BuildSecurityNode1'}
+  
+  tools {
+    maven 'Maven'
+  }
+  
+  stages {
+    
+    stage ('SAST SECRETS') {
+      steps {
+	sh 'rm -rf output || true'
+	sh 'mkdir output || true'
+        sh 'rm trufflehog | true'
+        sh 'docker run gesellix/trufflehog --json https://github.com/cmarcond/WebGoat-1.git | jq "." > trufflehog'
+        sh 'cat trufflehog > output/SAST-secrets.json'
+      }
+    }
+	  
+    stage ('SAST OWASP') {
+      steps {
+        sh 'rm owasp-dependency-check.sh* || true'
+        sh 'cp /tmp/owasp-dependency-check.sh .'
+        sh 'chmod +x owasp-dependency-check.sh'
+        sh 'bash owasp-dependency-check.sh'
+	    sh 'mv /opt/jenkins/OWASP-Dependency-Check/reports/dependency-check-report.html output/SAST-dependency-check.html'
+	      
+      }
+    }
+	  
+    stage ('SAST SONAQUBE') {
+      steps {
+        withSonarQubeEnv('sonarqube') {
+          sh 'mvn clean package sonar:sonar'
+        }
+      }
+    }
+
+    stage('BUILD') {
+      steps {
+        sh 'mvn clean package'
+      }
+    }
+
+    stage('Raise JiraIssue') {
+       steps {
+          script {
+    def JIRA_SITE_NAME = 'jira'
+    def JIRA_PROJ_NAME = 'RP'
+        def name = 'Cardif'
+        def sum = '''New JIRA Created from Jenkins ${name}'''
+
+    def issue = [fields: [ project: [key: JIRA_PROJ_NAME],
+      summary: sum,
+      description: 'New JIRA Created from Jenkins ${BUILD_NUMBER}.',
+      issuetype: [name: 'Task']]]
+
+        def newIssue = jiraNewIssue issue: issue, 
+      site: JIRA_SITE_NAME
+
+    def newIssueId = newIssue.data.key
+
+    echo newIssueId
+            
+        def attachment1 = jiraUploadAttachment site:
+      JIRA_SITE_NAME, idOrKey: newIssueId, file:
+      "output/SAST-dependency-check.html"
+
+        }
+      }
+    }
+	
+    stage('COMMIT APPROVAL'){
+      when {
+            branch "master"
+        }
+      steps {
+         input "Deploy to QA?"
+      }
+    }
+
+    stage('DEPLOY QA') {
+      when {
+            branch "master"
+        }
+      steps {
+        sshagent(['prod']) {
+	  sh 'ssh -o StrictHostKeyChecking=no deploy@172.28.128.204 "sudo bash /prod/apache-tomcat-8.5.47/bin/shutdown.sh"'
+          sh 'scp -o StrictHostKeyChecking=no $(pwd)/webgoat-container/target/*.war deploy@172.28.128.204:/prod/apache-tomcat-8.5.47/webapps/webapp.war'
+	  sh 'ssh -o StrictHostKeyChecking=no deploy@172.28.128.204 "sudo bash /prod/apache-tomcat-8.5.47/bin/startup.sh"'
+	  sh 'sleep 10'
+        }
+      }
+    }
+
+
+    stage('DAST NIKTO') {
+      when {
+            branch "master"
+        }
+      steps {
+        sh 'docker run --user $(id -u):$(id -g) --rm -v $(pwd):/report -i secfigo/nikto:latest -h 172.28.128.204 -port 8080 -F htm -output /report/nikto-output.html'
+	sh 'mv nikto-output.html output/DAST-nikto.html'
+      }
+    }
+
+    stage('DAST SSLSCAN') {
+      when {
+            branch "master"
+        }
+      steps {
+        sh 'docker run --rm -t nablac0d3/sslyze --regular www.github.com:443 > output/DAST-sslyze.txt'
+      }
+    }
+
+    stage('DAST NMAP') {
+      when {
+            branch "master"
+        }
+      steps {
+        sh 'nmap -sV 172.28.128.204 -oX scan.xml && xsltproc scan.xml -o report.html'
+	sh 'mv report.html output/DAST-nmap.html'
+      }
+    }
+
+    stage('DAST ZAP') {
+      when {
+            branch "master"
+        }
+      steps {
+        sh 'docker run -v  /tmp:/zap/wrk:rw owasp/zap2docker-stable zap-baseline.py -t http://172.28.128.204:8080/webapp/ -r report.html || true'
+	sh 'cp /tmp/report.html output/DAST-zapreport.html|| true'
+      }
+    }
+
+    stage('QA APPROVAL'){
+      when {
+            branch "master"
+        }
+      steps {
+         input "Deploy to Prod?"
+      }
+    }
+
+    stage('PROD DEPLOY'){
+      when {
+            branch "master"
+        }
+      steps {
+	sshagent(['prod']) {
+	  sh 'ssh -o StrictHostKeyChecking=no deploy@172.28.128.204 "sudo bash /prod/apache-tomcat-8.5.47/bin/shutdown.sh"'
+          sh 'scp -o StrictHostKeyChecking=no $(pwd)/webgoat-container/target/*.war deploy@172.28.128.204:/prod/apache-tomcat-8.5.47/webapps/webapp.war'
+	  sh 'ssh -o StrictHostKeyChecking=no deploy@172.28.128.204 "sudo bash /prod/apache-tomcat-8.5.47/bin/startup.sh"'
+	  sh 'sleep 10'
+	}
+      }
+    }
+
+    stage('HARDENING ANSIBLE PROD'){
+      when {
+            branch "master"
+        }
+      steps {
+	withCredentials([sshUserPrivateKey(credentialsId: "prod", keyFileVariable: 'keyfile')]) {
+	  sh 'echo "[prod]" > inventory.ini'
+	  sh 'echo "172.28.128.204 ansible_user=deploy ansible_ssh_private_key_file=${keyfile}" >> inventory.ini'
+	  sh 'ansible-galaxy install dev-sec.os-hardening'
+      sh 'cp /tmp/ansible-hardening.yml .'
+	  sh 'ansible-playbook -i inventory.ini ansible-hardening.yml > ansible-hardening.txt'
+	  sh 'mv ansible-hardening.txt output'
+	}
+      }
+    }
+
+    stage('COMPLIANCE INSPEC'){
+      when {
+            branch "master"
+        }
+      steps {
+	withCredentials([sshUserPrivateKey(credentialsId: "prod", keyFileVariable: 'keyfile')]) {
+	  sh 'inspec exec https://github.com/dev-sec/linux-baseline -t ssh://deploy@172.28.128.204 -i ${keyfile} --chef-license=accept --reporter html:inspec.html || true'
+          sh 'mv inspec.html output/COMPLIANCE-inspec.html'
+	}
+      }
+    }
+
+    stage('COMPLIANCE OPENSCAP'){
+      when {
+            branch "master"
+        }
+      steps {
+        sshagent(['prod']) {
+          sh 'wget https://people.canonical.com/~ubuntu-security/oval/com.ubuntu.bionic.cve.oval.xml'
+          sh 'scp -o StrictHostKeyChecking=no com.ubuntu.bionic.cve.oval.xml deploy@172.28.128.204:/tmp'
+	  	  sh 'ssh -o StrictHostKeyChecking=no deploy@172.28.128.204 "oscap oval eval --results /tmp/oscap_results.xml --report /tmp/oscap_report.html /tmp/com.ubuntu.bionic.cve.oval.xml"'
+          sh 'scp -o StrictHostKeyChecking=no deploy@172.28.128.204:/tmp/oscap_report.html oscap_results.html'
+	      sh 'mv oscap_results.html output/COMPLIANCE-oscap_results.html'
+        }
+      }
+    }
+
+    stage('COMPLIANCE NESSUS'){
+      when {
+            branch "master"
+        }
+      steps {
+         sh 'echo "NESSUS here"'
+      }
+    }
+
+  }
+		
+  post {
+      always {
+          archiveArtifacts artifacts: 'output/*', fingerprint: true
+          archiveArtifacts artifacts: 'webgoat-container/target/*.war', fingerprint: true
+      }
+  }
+  
+}
