@@ -16,18 +16,14 @@ pipeline {
         sh 'cat trufflehog > output/SAST-secrets.json'
       }
     }
-	  
+*/	  
     stage ('SAST OWASP') {
       steps {
-        sh 'rm owasp-dependency-check.sh* || true'
-        sh 'cp /tmp/owasp-dependency-check.sh .'
-        sh 'chmod +x owasp-dependency-check.sh'
-        sh 'bash owasp-dependency-check.sh'
-	    sh 'mv /opt/jenkins/OWASP-Dependency-Check/reports/dependency-check-report.html output/SAST-dependency-check.html'
-	      
+        sh ' /opt/jenkins/dependency-check/bin/dependency-check.sh --proxyserver ncproxy1 --proxyport 8080 --project Testing --out . --scan .'
+//	sh 'mv /opt/jenkins/OWASP-Dependency-Check/reports/dependency-check-report.html output/SAST-dependency-check.html'      
       }
     }
-*/	  
+	  
     stage ('SAST SONAQUBE') {
       steps {
         withSonarQubeEnv('sonarqube') {
