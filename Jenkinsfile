@@ -7,7 +7,7 @@ pipeline {
   
   stages {
     
-    stage ('SAST SECRETS') {
+/*    stage ('SAST SECRETS') {
       steps {
 	sh 'rm -rf output || true'
 	sh 'mkdir output || true'
@@ -27,7 +27,7 @@ pipeline {
 	      
       }
     }
-	  
+*/	  
     stage ('SAST SONAQUBE') {
       steps {
         withSonarQubeEnv('sonarqube') {
