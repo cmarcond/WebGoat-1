@@ -19,8 +19,10 @@ pipeline {
 */	  
     stage ('SAST OWASP') {
       steps {
-        sh ' /opt/jenkins/dependency-check/bin/dependency-check.sh --proxyserver ncproxy1 --proxyport 8080 --project Testing --out . --scan .'
-//	sh 'mv /opt/jenkins/OWASP-Dependency-Check/reports/dependency-check-report.html output/SAST-dependency-check.html'      
+	sh 'rm -rf output || true'
+	sh 'mkdir output || true'
+	sh ' /opt/jenkins/dependency-check/bin/dependency-check.sh --proxyserver ncproxy1 --proxyport 8080 --project Testing --out . --scan .'
+	sh 'mv dependency-check-report.html output/SAST-dependency-check.html'      
       }
     }
 	  
