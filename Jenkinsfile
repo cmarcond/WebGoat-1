@@ -7,20 +7,17 @@ pipeline {
   
   stages {
     
-/*    stage ('SAST SECRETS') {
+    stage ('SAST SECRETS') {
       steps {
 	sh 'rm -rf output || true'
 	sh 'mkdir output || true'
         sh 'rm trufflehog | true'
-        sh 'docker run gesellix/trufflehog --json https://github.com/cmarcond/WebGoat-1.git | jq "." > trufflehog'
-        sh 'cat trufflehog > output/SAST-secrets.json'
+        sh 'trufflehog --regex --entropy=False https://github.com/mshauneu/trufflehog  > output/SAST-secrets.txt'
       }
     }
-*/	  
+	  
     stage ('SAST OWASP') {
       steps {
-	sh 'rm -rf output || true'
-	sh 'mkdir output || true'
 	sh ' /opt/jenkins/dependency-check/bin/dependency-check.sh --proxyserver ncproxy1 --proxyport 8080 --project Testing --out . --scan .'
 	sh 'mv dependency-check-report.html output/SAST-dependency-check.html'      
       }
