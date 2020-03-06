@@ -1,5 +1,5 @@
 pipeline {
-  agent {label 'BuildSecurityNode1'}
+  agent {label 'Security'}
   
   tools {
     maven 'Maven'
@@ -41,4 +41,6 @@ pipeline {
         sh 'mvn clean package'
       }
     }
+  }
+	
 }
