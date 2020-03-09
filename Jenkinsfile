@@ -7,7 +7,7 @@ pipeline {
   
   stages {
     
-    stage ('SAST SECRETS') {
+/*    stage ('SAST SECRETS') {
       steps {
 	sh 'rm -rf output || true'
 	sh 'mkdir output || true'
@@ -15,10 +15,12 @@ pipeline {
         sh 'trufflehog --regex --entropy=False https://github.com/mshauneu/trufflehog  > output/SAST-secrets.txt'
       }
     }
-	  
+*/	  
     stage ('SAST OWASP') {
       steps {
-	sh ' /opt/jenkins/dependency-check/bin/dependency-check.sh --proxyserver ncproxy1 --proxyport 8080 --project Testing --out . --scan .'
+	sh 'rm -rf output || true'
+	sh 'mkdir output || true'
+        sh ' /opt/jenkins/dependency-check/bin/dependency-check.sh --proxyserver ncproxy1 --proxyport 8080 --project Testing --out . --scan .'
 	sh 'mv dependency-check-report.html output/SAST-dependency-check.html'      
       }
     }
@@ -35,7 +37,8 @@ pipeline {
       steps {
         sh 'mvn clean package'
       }
-    }
-  }
+    } // end BUILD
+	  
+  } // end stages
 	
-}
+} // end pipeline
